@@ -1,0 +1,173 @@
+---
+- name: Deploy private Azure Red Hat OpenShift
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  collections:
+    - azure.azcollection
+  vars:
+    subscription: "airs-for-pinhuang"
+    aro_cluster_name: "aro-cluster"
+    aro_resource_group: "rg-aro"
+    aro_location: "eastus"
+    aro_domain: "azure.pichuang.com.tw"
+    aro_client_id: "REPLACE_ME"
+    aro_client_secret: "REPLACE_ME"
+    aro_vnet_name: "vnet-aro"
+    aro_vnet_subnet_prefix: "10.252.12.0/24"
+    aro_master_subnet_name: "subnet-aro-master"
+    aro_master_subnet_prefix: "10.252.12.0/27"
+    aro_worker_subnet_name: "subnet-aro-worker"
+    aro_worker_subnet_prefix: "10.252.12.32/27"
+    aro_ingress_visibility: "Private" # Public or Private
+    aro_apiserver_visibility: "Private" # Public or Private
+    aro_pull_secret: "{{ lookup('file', 'pull-secret.txt') }}"
+  tasks:
+
+    - name: Enable Azure provider
+      shell: >
+        az provider register --only-show-errors -n {{ item }}
+      loop:
+        - Microsoft.RedHatOpenShift
+        - Microsoft.Compute
+        - Microsoft.Storage
+        - Microsoft.Authorization
+
+    - name: Create resource group
+      azure_rm_resourcegroup:
+        name: "{{ aro_resource_group }}"
+        location: "{{ aro_location }}"
+
+    - name: Create virtual network
+      azure_rm_virtualnetwork:
+        location: "{{ aro_location }}"
+        name: "{{ aro_vnet_name }}"
+        resource_group: "{{ aro_resource_group }}"
+        address_prefixes: "{{ aro_vnet_subnet_prefix }}"
+        state: present
+
+    - name: Create ARO Master Subnet
+      azure_rm_subnet:
+        name: "{{ aro_master_subnet_name }}"
+        address_prefix: "{{ aro_master_subnet_prefix }}"
+        resource_group: "{{ aro_resource_group }}"
+        virtual_network: "{{ aro_vnet_name }}"
+        service_endpoints:
+          - service: Microsoft.ContainerRegistry
+        private_link_service_network_policies: Disabled
+
+    - name: Create ARO Worker Subnet
+      azure_rm_subnet:
+        name: "{{ aro_worker_subnet_name }}"
+        address_prefix: "{{ aro_worker_subnet_prefix }}"
+        resource_group: "{{ aro_resource_group }}"
+        virtual_network: "{{ aro_vnet_name }}"
+        service_endpoints:
+          - service: Microsoft.ContainerRegistry
+
+    - name: Check {{ aro_apiserver_visibility }} ARO cluster is exists
+      shell: >
+        az aro show
+        --name {{ aro_cluster_name }}
+        --resource-group {{ aro_resource_group }}
+      register: aro_cluster_is_exist
+      ignore_errors: yes
+    - name: Create {{ aro_apiserver_visibility }} ARO cluster
+      shell: >
+        az aro create
+        --resource-group '{{ aro_resource_group }}'
+        --name '{{ aro_cluster_name }}'
+        --vnet '{{ aro_vnet_name }}'
+        --master-subnet '{{ aro_master_subnet_name }}'
+        --worker-subnet '{{ aro_worker_subnet_name }}'
+        --master-vm-size Standard_D8s_v3
+        --worker-vm-size Standard_D4s_v3
+        --worker-vm-disk-size-gb 128
+        --worker-count 3
+        --pod-cidr '10.128.0.0/14'
+        --service-cidr '172.30.0.0/16'
+        --apiserver-visibility '{{ aro_apiserver_visibility }}'
+        --ingress-visibility '{{ aro_ingress_visibility }}'
+        --client-id '{{ aro_client_id }}'
+        --client-secret '{{ aro_client_secret }}'
+      when: aro_cluster_is_exist.rc != 0
+
+    - name: Check if {{ aro_apiserver_visibility }} ARO apiserverProfile is completed
+      shell: >
+        az aro show
+        --name {{ aro_cluster_name }}
+        --resource-group {{ aro_resource_group }}
+        --query apiserverProfile
+        -o tsv
+      register: output_aro_cluster_completed
+
+    - name: ARO Console URL Information
+      shell: >
+        az aro show
+        --name '{{ aro_cluster_name }}'
+        --resource-group '{{ aro_resource_group }}'
+        --query consoleProfile.url
+        -o tsv
+      register: private_aro_console_url
+
+    - name: Test ARO Console connections
+      uri:
+        url: '{{ private_aro_console_url.stdout }}'
+        status_code: 200
+        validate_certs: no
+        timeout: 5
+      register: aro_cluster_console_url
+      until: aro_cluster_console_url.status == 200
+      retries: 1
+      delay: 1
+      delegate_to: localhost
+      run_once: true
+      changed_when: false
+      ignore_errors: true
+
+    - name: ARO API URL Information
+      shell: >
+        az aro show
+        --name '{{ aro_cluster_name }}'
+        --resource-group '{{ aro_resource_group }}'
+        --query apiserverProfile.url
+        -o tsv
+      register: private_aro_cluster_api_url
+
+    - name: Test ARO API connections
+      uri:
+        url: '{{ private_aro_cluster_api_url.stdout }}'
+        status_code: 200
+        validate_certs: no
+        timeout: 5
+      register: aro_cluster_api_server
+      until: aro_cluster_api_server.status == 200
+      retries: 1
+      delay: 1
+      delegate_to: localhost
+      run_once: true
+      changed_when: false
+      ignore_errors: true
+
+    - name: Grant ARO Credntials
+      shell: >
+        az aro list-credentials
+        --name '{{ aro_cluster_name }}'
+        --resource-group '{{ aro_resource_group }}'
+      register: output_aro_credentials
+
+    - name: Remove ARO Information
+      file:
+        path: "aro-information.txt"
+        state: absent
+
+    - name: Output {{ aro_apiserver_visibility }} ARO Information
+      local_action:
+        module: lineinfile
+        dest: "aro-information.txt"
+        line: '{{ item }}'
+        create: yes
+      changed_when: False
+      loop:
+        - '{{ private_aro_cluster_api_url.stdout }}'
+        - '{{ output_aro_credentials.stdout }}'

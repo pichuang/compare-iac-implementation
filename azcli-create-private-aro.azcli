@@ -1,0 +1,77 @@
+#!/bin/bash
+set -x
+##############################
+##### START - VARIABLES ######
+##############################
+
+SUBSCRIPTION_NAME="airs-for-pinhuang"
+LOCATION="eastus"
+RESOURCEGROUP="rg-aro"
+CLUSTER_NAME="aro-cluster"
+VNET_NAME="vnet-aro-cluster"
+VNET_CIDR="10.252.12.0/24"
+MASTER_SUBNET_NAME="subnet-aro-master"
+MASTER_NODE_CIDR="10.252.12.0/27"
+WORKER_SUBNET_NAME="subnet-aro-worker"
+WORKER_NODE_CIDR="10.252.12.32/27"
+
+##############################
+##### END - VARIABLES ######
+##############################
+
+##############################
+####### START - SCRIPT #######
+##############################
+
+az account set --name $SUBSCRIPTION_NAME
+az account show
+
+az provider register -n Microsoft.RedHatOpenShift --wait
+az provider register -n Microsoft.Compute --wait
+az provider register -n Microsoft.Storage --wait
+az provider register -n Microsoft.Authorization --wait
+
+az group create --resource-group $RESOURCEGROUP --location $LOCATION
+
+#
+# Create the VNet
+#
+
+az network vnet create \
+  --resource-group $RESOURCEGROUP \
+  --name $VNET_NAME \
+  --address-prefixes $VNET_CIDR
+
+az network vnet subnet create \
+  --resource-group $RESOURCEGROUP \
+  --vnet-name $VNET_NAME \
+  --name $MASTER_SUBNET_NAME \
+  --address-prefixes $MASTER_NODE_CIDR \
+  --service-endpoints Microsoft.ContainerRegistry
+
+az network vnet subnet create \
+  --resource-group $RESOURCEGROUP \
+  --vnet-name $VNET_NAME \
+  --name $WORKER_SUBNET_NAME \
+  --address-prefixes $WORKER_NODE_CIDR \
+  --service-endpoints Microsoft.ContainerRegistry
+
+az network vnet subnet update \
+  --name $MASTER_SUBNET_NAME \
+  --resource-group $RESOURCEGROUP \
+  --vnet-name $VNET_NAME \
+  --disable-private-link-service-network-policies true
+
+#
+# Create a private Azure Red Hat OpenShift cluster
+#
+
+time az aro create \
+  --resource-group $RESOURCEGROUP \
+  --name $CLUSTER_NAME \
+  --vnet $VNET_NAME \
+  --master-subnet $MASTER_SUBNET_NAME \
+  --worker-subnet $WORKER_SUBNET_NAME \
+  --apiserver-visibility Private \
+  --ingress-visibility Private \
+  --pull-secret @pull-secret.txt
