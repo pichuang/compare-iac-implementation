@@ -4,11 +4,11 @@ This is a repository comparing the writing styles of Infrastructure as Code (IaC
 
 | Tools | Filename | Can work? | Note |
 | --- | --- | --- | --- |
-| Azure CLI | azcli-create-private-aro.azcli | Yes | [Ref][4] |
-| Ansible Playbook | create-private-aro.yml | Yes | [Ref][3] |
-| Terraform | terraform-create-private-aro.tf | No | [Ref][5] |
-| ARM Template | arm-template-create-private-aro.json | Yes | [Ref][2] |
-| Bicep | bicep-create-private-aro.json | Yes | [Ref][1] |
+| Azure CLI | [azcli-create-private-aro.azcli](/azcli-create-private-aro.azcli) | Yes | [Ref][4] |
+| Ansible| [ansible-create-private-aro.yml](/ansible-create-private-aro.yml) | Yes | [Ref][3] |
+| Terraform | [terraform-create-private-aro.tf](/terraform-create-private-aro.tf) | No | [Ref][5] |
+| ARM Template | [arm-template-create-private-aro.json](/arm-template-create-private-aro.json) | Yes | [Ref][2] |
+| Bicep | [bicep-create-private-aro.json](/bicep-create-private-aro.json) | Yes | [Ref][1] |
 
 ## Suggested Comparison Order
 
